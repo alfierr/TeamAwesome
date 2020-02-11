@@ -1,2 +1,0 @@
-# TeamAwesome
-First Group Project
