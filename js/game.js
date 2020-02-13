@@ -1,10 +1,16 @@
 'use strict';
 var key = {};
-var scene, world, camera, renderer, controls, clock;
-var stage, marble;
+var scene, world, camera, renderer, controls, clock, skybox, textureLoader;
+var cursorRaycaster = new THREE.Raycaster();
+var mouse = new THREE.Vector2();
+var stage, marble, david, davidText;
 var delta = 0;
 var cube
 var rigidBodies = [];
+var handlers = [];
+var cg_default = 1;
+var cg_stage = 2;
+var cg_joint = 4;
 
 var orientation_debug = document.getElementById("device-orientation");
 start();
@@ -14,20 +20,20 @@ function start() {
     initThreejs();
     stage = createBox({position: new CANNON.Vec3(0,-2,0),
         extents: new CANNON.Vec3(20,1,20),
-        color: new THREE.Color(0xe1e1e1) });
-        marble = createBall({mass: 1});
-
+        color: new THREE.Color(0xe1e1e1),});
+    marble = createBall({mass: 1});
+    setSkybox("clear-sky");
     animate();
 }
 
 function initThreejs() {
     clock = new THREE.Clock();
-
+    textureLoader = new THREE.TextureLoader();
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0xbfd1e5);
 
     camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.2, 5000);
-    camera.position.set(0,30,70);
+    camera.position.set(-15,12,20);
     camera.lookAt(new THREE.Vector3(0,0,0))
 
     // hemilight
@@ -54,9 +60,38 @@ function initThreejs() {
     dirLight.shadow.camera.bottom = -d;
     dirLight.shadow.camera.far = 13500;
 
+    // setup skybox
+    skybox = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial())
+    scene.add(skybox);
+    skybox.scale.set(500,500,500);
+    addHandler(skybox,function() {
+        skybox.position.x = camera.position.x;
+        skybox.position.y = camera.position.y;
+        skybox.position.z = camera.position.z;
+    })
 
-    
-    renderer = new THREE.WebGLRenderer({antialias: false});
+    // david mode
+    var davidGeom = new THREE.PlaneBufferGeometry(2,2)
+    david = new THREE.Mesh(davidGeom,new THREE.MeshBasicMaterial({map: textureLoader.load(`img/textures/david.png`)}));
+    scene.add(david);
+    addHandler(david, function(){
+        david.position.lerp(new THREE.Vector3(0,3,0).add(marble.position),0.1);
+        david.lookAt(camera.position)
+    })
+    var davidGeom = new THREE.PlaneBufferGeometry(1.8,1)
+    davidText = new THREE.Mesh(davidGeom,new THREE.MeshBasicMaterial({transparent: true, opacity:0, map: textureLoader.load(`img/textures/david-text.png`)}));
+    davidText.position.set(0,1.5,0);
+    david.add(davidText);
+    addHandler(davidText, function() {
+        var intersect = cursorRaycaster.intersectObject(david, false);
+        if(intersect.length > 0) {
+            davidText.material.opacity = Math.min(davidText.material.opacity+0.1,1);
+        } else {
+            davidText.material.opacity = Math.max(davidText.material.opacity-0.1,0);
+        }
+    });
+    // renderer
+    renderer = new THREE.WebGLRenderer({antialias: true});
     renderer.setClearColor(0xbfd1e5);
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -66,6 +101,7 @@ function initThreejs() {
     renderer.gammaOutput = true;
     renderer.shadowMap.enabled = true;
     
+    // controls
     controls = new THREE.OrbitControls(camera, renderer.domElement);
     controls.enableKeys = false;
 }
@@ -144,15 +180,32 @@ function initCannonjs() {
     
 }
 
+function setSkybox(name) {
+    skybox.material = [
+    new THREE.MeshBasicMaterial( {map: textureLoader.load(`img/textures/skybox/${name}/right.png`), side: THREE.DoubleSide}),
+    new THREE.MeshBasicMaterial( {map: textureLoader.load(`img/textures/skybox/${name}/left.png`), side: THREE.DoubleSide}),
+    new THREE.MeshBasicMaterial( {map: textureLoader.load(`img/textures/skybox/${name}/up.png`), side: THREE.DoubleSide}),
+    new THREE.MeshBasicMaterial( {map: textureLoader.load(`img/textures/skybox/${name}/down.png`), side: THREE.DoubleSide}),
+    new THREE.MeshBasicMaterial( {map: textureLoader.load(`img/textures/skybox/${name}/front.png`), side: THREE.DoubleSide}),
+    new THREE.MeshBasicMaterial( {map: textureLoader.load(`img/textures/skybox/${name}/back.png`), side: THREE.DoubleSide})
+    ]
+}
+
 function animate(time) {
     delta = clock.getDelta() || 1/60;
-    // stage.rotationx += 0.01;
-    // stage.rotationy += 0.01;
+
+
     if (key.ArrowLeft) stage.rotationz += 0.02;
     if (key.ArrowRight) stage.rotationz -= 0.02;
     if (key.ArrowUp) stage.rotationx -= 0.02;
     if (key.ArrowDown) stage.rotationx += 0.02;
     
+
+
+    for (let i=0; i<handlers.length; ++i) {
+        handlers[i]();
+    }
+
     world.step(delta);
     syncPhys();
     renderer.render(scene, camera);
@@ -184,32 +237,67 @@ function defaultOptions(options) {
     options.mass = options.mass || 0;
     options.quaternion = options.quaternion || new CANNON.Quaternion(0,0,0,1);
     options.color = options.color || new THREE.Color(Math.random(),Math.random(),Math.random())
+    if (options.invisible == undefined) options.invisible = false;
+    if (options.group == undefined) options.group = 1;
+    if (options.mask == undefined) options.mask = 1;
 }
 function createShape(shape,geometry,options) {
-    var mesh = new THREE.Mesh(geometry, new THREE.MeshPhongMaterial({color: options.color}));
-    mesh.castShadow = mesh.receiveShadow = true; // enable shadows
-    scene.add(mesh); // add mesh to graphics world
-
     var body = new CANNON.Body({mass: options.mass, shape:shape, position: options.position});
-    body.mesh = mesh; // reference mesh from physicsbody
+    body.collisionFilterGroup = options.group;
+    body.collisionFilterMask = options.mask;
     body.euler = {x:0, y:0, z:0};
-    mesh.userData.body = body; // reference physicsbody from mesh
+    
     world.add(body); // add body to physics world
     
-    rigidBodies.push(body); // add physicsbody to processing array
+    if (!options.invisible) { // if body is meant to be visible
+        var mesh = new THREE.Mesh(geometry, new THREE.MeshPhongMaterial({color: options.color})); // create mesh
+        mesh.castShadow = mesh.receiveShadow = true; // enable shadows
+        scene.add(mesh); // add mesh to graphics world
+        mesh.userData.body = body; // reference physicsbody from mesh
+
+        body.mesh = mesh; // reference mesh from physicsbody
+        rigidBodies.push(body); // add physicsbody to processing array
+    }
+
     return body;   
 }
+function removeObject(obj) {
+    if (obj instanceof CANNON.Body) {
+        world.remove(obj)        
+        if (obj.mesh) scene.remove(obj.mesh);
 
+        var idx = rigidBodies.indexOf(obj);
+        if (idx!=-1) rigidBodies.splice(idx,1);
+    }
+    else {
+        scene.remove(obj)
+        if (obj.userData.body) world.remove(obj.userData.body)
+        var idx = rigidBodies.indexOf(obj.userData.body);
+        if (idx!=-1) rigidBodies.splice(idx,1);
+    }
+}
 
 function syncPhys () {
     rigidBodies.forEach((body)=>{
-        let mesh = body.mesh;
-        mesh.position.set(body.position.x, body.position.y, body.position.z)
-        mesh.quaternion.set(body.quaternion.x,body.quaternion.y,body.quaternion.z,body.quaternion.w)
+        if (body.mesh != undefined) {
+            let mesh = body.mesh;
+            mesh.position.set(body.position.x, body.position.y, body.position.z)
+            mesh.quaternion.set(body.quaternion.x,body.quaternion.y,body.quaternion.z,body.quaternion.w)   
+        }
     })
 }
 
+function lerp(from,to,weight=0.10) {
+    if (Math.abs(to-from) < 0.001) return to;
+    return from+((to-from)*weight)
+}
 
+window.addEventListener("mousemove", function(event) {
+    mouse.x = (event.clientX / renderer.domElement.clientWidth) * 2 - 1;
+    mouse.y = -(event.clientY / renderer.domElement.clientHeight) * 2 + 1;
+
+    cursorRaycaster.setFromCamera(mouse, camera);
+});
 
 window.addEventListener("deviceorientation", function(event) {
     var rotateDegrees = event.alpha*(Math.PI/180);
@@ -237,8 +325,31 @@ document.addEventListener('keyup', function(event) {
     key[event.code] = false;
 });
 
+function addHandler(obj,handler) {
+    if (typeof handler == "function") {
+        handler.obj = obj
+        handlers.push(handler);
+        obj.handlers || (obj.handlers = []);
+        obj.handlers.push(handler)
+    }
+}
+function removeHandler(handler) {
+    var index = handlers.indexOf(handler);
+    if (index > -1) {
+        handlers.splice(index,1)
+        handlers.splice(handler.obj.handlers.indexOf(handler),1);
+    }
+}
 
-
+function toggleDavid(el) {
+    if (david.visible) {
+        el.innerHTML = "david mode: OFF";
+        david.visible = false;
+    } else {
+        el.innerHTML = "david mode: ON";
+        david.visible = true;
+    }
+}
 
 
 

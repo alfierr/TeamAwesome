@@ -5,12 +5,14 @@
 		<title>My first three.js app</title>
 		<style>
 			body { margin: 0; }
-			canvas { display: block; image-rendering: pixelated;}
+			canvas { display: block; }
             #device-orientation{ position:fixed; padding: 10px; font-size: 50px; background-color: white;}
+            #toggle-david {position: fixed; padding: 10px; top:100px; left:15px;}
 		</style>
 	</head>
 	<body>
         <span id="device-orientation"></span>
+        <button id="toggle-david" onclick="toggleDavid(this)">david mode: ON</button>
 		<script src="js/three.js"></script>
 		<script src="js/GLTFLoader.js"></script>
 		<script src="js/OrbitControls.js"></script>
