@@ -1,40 +1,66 @@
 'use strict';
-var key = {};
+var key = {}; // object for holding which keys are being pressed
 var scene, world, camera, renderer, controls, clock, skybox, textureLoader;
-var cursorRaycaster = new THREE.Raycaster();
-var mouse = new THREE.Vector2();
+var cursorRaycaster = new THREE.Raycaster(); // raycaster to detect if cursor is over an object in 3d scene
+var mouse = new THREE.Vector2(); // 2d vector for mouse position
+var mouseDown = false;
+var touchX=0,touchY=0; // touch coordinates on joystick controls
 var stage, marble, david, davidText;
-var delta = 0;
-var cube
-var rigidBodies = [];
-var handlers = [];
-var cg_default = 1;
-var cg_stage = 2;
-var cg_joint = 4;
-
-var orientation_debug = document.getElementById("device-orientation");
+var furthest // keeps track of furthest platform currently in existence;
+var delta = 0; // amount of time that has passed each frame
+var paused = false;
+var cameraFocus = {}; cameraFocus.position = new THREE.Vector3(0,0,0); // holds focus element for camera to look towards
+var cameraFocusTrailer = new THREE.Vector3(0,0,0); // point that smoothly follows camera focus element to allow smooth camera turning
+var rigidBodies = []; // array for holding of all physics objects that need to be processed
+var handlers = []; // array of functions that get called every frame
+var platforms = [];
+var cg_default = 1, cg_stage = 2, cg_joint = 4; // collision groups
+var touchControls = document.getElementById("touch-controls"); // touchscreen controls
+var touchJoystick = document.getElementById("touch-joystick"); // joystick visual element for touchscreen controls
+var orientation_debug = document.getElementById("device-orientation"); // display orientation data
 start();
 
-function start() {
+function start() { // do stuff
+
     initCannonjs();
     initThreejs();
-    stage = createBox({position: new CANNON.Vec3(0,-2,0),
-        extents: new CANNON.Vec3(20,1,20),
-        color: new THREE.Color(0xe1e1e1),});
-    marble = createBall({mass: 1});
+    furthest = stage = createBox({position: new CANNON.Vec3(0,-2,0), // setup first stage
+        extents: new CANNON.Vec3(20,3,20),
+        color: new THREE.Color(0xe1e1e1),
+        type: CANNON.Body.KINEMATIC,
+        group: cg_stage});
+    stage.target = new CANNON.Vec3(0,0,0); // target rotation
+    cameraFocus = stage.mesh;
+    platforms.push(stage);
+    marble = createBall({mass: 0.1, mask: cg_default | cg_stage});
+    marble.addEventListener("collide", function(e) { // listen for collisions and switch focus to new stage 
+        stage.angularVelocity = new CANNON.Vec3();
+        cameraFocus = stage = e.body;
+        camera.minDist = 1;
+    });
     setSkybox("clear-sky");
     animate();
 }
 
-function initThreejs() {
+function initThreejs() { // setup threejs scene
     clock = new THREE.Clock();
     textureLoader = new THREE.TextureLoader();
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0xbfd1e5);
 
     camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.2, 5000);
-    camera.position.set(-15,12,20);
-    camera.lookAt(new THREE.Vector3(0,0,0))
+    camera.position.set(0,20,35);
+    camera.maxDist = 40;
+    camera.minDist = 20;
+    camera.lookAt(cameraFocus.position)
+    addHandler(camera, function() { // the camera follows the current camerafocus object
+        camera.lookAt(cameraFocusTrailer); // camera is always looking at the camerafocustrailer (which follow the focused object)
+        camera.position.lerp(new THREE.Vector3(
+            Math.min(Math.max(cameraFocus.position.x-5,camera.position.x),cameraFocus.position.y+5), // stay aligned with focus element on x axis
+            Math.min(Math.max(cameraFocus.position.y+camera.minDist,camera.position.y),cameraFocus.position.y+camera.maxDist), // stay within 50 units of of camerafocus but not more than 20 (on y and z axes)
+            Math.min(Math.max(cameraFocus.position.z+camera.minDist,camera.position.z),cameraFocus.position.z+camera.maxDist) 
+            ),0.10) // 10% lerp
+    });
 
     // hemilight
     let hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.1);
@@ -63,8 +89,8 @@ function initThreejs() {
     // setup skybox
     skybox = new THREE.Mesh(new THREE.BoxGeometry(), new THREE.MeshBasicMaterial())
     scene.add(skybox);
-    skybox.scale.set(500,500,500);
-    addHandler(skybox,function() {
+    skybox.scale.set(500,500,500); // big skybox
+    addHandler(skybox,function() { // the skybox moves to stay always centered around the camera so it looks like it never gets closer
         skybox.position.x = camera.position.x;
         skybox.position.y = camera.position.y;
         skybox.position.z = camera.position.z;
@@ -72,17 +98,17 @@ function initThreejs() {
 
     // david mode
     var davidGeom = new THREE.PlaneBufferGeometry(2,2)
-    david = new THREE.Mesh(davidGeom,new THREE.MeshBasicMaterial({map: textureLoader.load(`img/textures/david.png`)}));
+    david = new THREE.Mesh(davidGeom,new THREE.MeshBasicMaterial({map: textureLoader.load(`img/textures/david.png`), side: THREE.DoubleSide}));
     scene.add(david);
-    addHandler(david, function(){
+    addHandler(david, function(){ // david follows (slightly above) the marble and is always facing the camera
         david.position.lerp(new THREE.Vector3(0,3,0).add(marble.position),0.1);
         david.lookAt(camera.position)
     })
-    var davidGeom = new THREE.PlaneBufferGeometry(1.8,1)
-    davidText = new THREE.Mesh(davidGeom,new THREE.MeshBasicMaterial({transparent: true, opacity:0, map: textureLoader.load(`img/textures/david-text.png`)}));
+    var davidGeom2 = new THREE.PlaneBufferGeometry(1.8,1)
+    davidText = new THREE.Mesh(davidGeom2,new THREE.MeshBasicMaterial({transparent: true, opacity:0, map: textureLoader.load(`img/textures/david-text.png`)}));
     davidText.position.set(0,1.5,0);
     david.add(davidText);
-    addHandler(davidText, function() {
+    addHandler(davidText, function() { // if you hover over the david it makes text fade in that says "david"
         var intersect = cursorRaycaster.intersectObject(david, false);
         if(intersect.length > 0) {
             davidText.material.opacity = Math.min(davidText.material.opacity+0.1,1);
@@ -97,6 +123,13 @@ function initThreejs() {
     renderer.setSize(window.innerWidth, window.innerHeight);
     document.body.appendChild(renderer.domElement);
 
+    renderer.domElement.addEventListener("mousedown", function(){
+        mouseDown = true;
+    });
+    renderer.domElement.addEventListener("mouseup", function(){
+        mouseDown = false;
+    });
+
     renderer.gammaInput = true;
     renderer.gammaOutput = true;
     renderer.shadowMap.enabled = true;
@@ -106,7 +139,7 @@ function initThreejs() {
     controls.enableKeys = false;
 }
 
-function initCannonjs() {
+function initCannonjs() { // setup physics world
     // add easy euler rotation access to rigidbody prototype
     CANNON.Body.prototype.rotation = function(x,y,z) {
         if (x==undefined) {
@@ -146,7 +179,7 @@ function initCannonjs() {
 
 
     world = new CANNON.World();
-    world.gravity.set(0,-9.82,0);
+    world.gravity.set(0,-30,0);
     world.broadphase = new CANNON.NaiveBroadphase();
 
 
@@ -180,7 +213,7 @@ function initCannonjs() {
     
 }
 
-function setSkybox(name) {
+function setSkybox(name) { // change world skybox by resource folder name
     skybox.material = [
     new THREE.MeshBasicMaterial( {map: textureLoader.load(`img/textures/skybox/${name}/right.png`), side: THREE.DoubleSide}),
     new THREE.MeshBasicMaterial( {map: textureLoader.load(`img/textures/skybox/${name}/left.png`), side: THREE.DoubleSide}),
@@ -191,28 +224,74 @@ function setSkybox(name) {
     ]
 }
 
-function animate(time) {
-    delta = clock.getDelta() || 1/60;
+function animate(time) { // animation loop
+    if (delta>0.2) console.log(delta);
+    delta = clock.getDelta() || 1/60; // get delta (amount of time that has passed since the last frame)
+
+    // rotate stage with arrow keys
+    if (key.ArrowLeft) stage.rotationz += 0.08;
+    if (key.ArrowRight) stage.rotationz -= 0.08;
+    if (key.ArrowUp) stage.rotationx -= 0.08;
+    if (key.ArrowDown) stage.rotationx += 0.08;
+
+    if (key.ArrowLeft || key.ArrowRight || key.ArrowDown || key.ArrowUp) touchControls.style.display = "none"; // turn off touch controls if arrow keys are pressed
+    stage.rotationz = Math.min(Math.max(stage.rotationz - touchX,-Math.PI/2),Math.PI/2); // limit stage rotation on both axes to pi/2 radians in either direction
+    stage.rotationx = Math.min(Math.max(stage.rotationx + touchY,-Math.PI/2),Math.PI/2);
 
 
-    if (key.ArrowLeft) stage.rotationz += 0.02;
-    if (key.ArrowRight) stage.rotationz -= 0.02;
-    if (key.ArrowUp) stage.rotationx -= 0.02;
-    if (key.ArrowDown) stage.rotationx += 0.02;
-    
 
+    camera.minDist = lerp(camera.minDist, 20, 0.02);
+    // stage.target.x = Math.min(Math.max(stage.target.x,-Math.PI/2),Math.PI/2); // limit stage rotation target on both axes to pi/2 radians in either direction
+    // stage.target.z = Math.min(Math.max(stage.target.z,-Math.PI/2),Math.PI/2);
 
-    for (let i=0; i<handlers.length; ++i) {
+    // var eu = {};
+    // stage.quaternion.toEuler(eu); // get rotation
+    // console.log(eu.y);
+    // stage.angularVelocity.x = (stage.target.x - eu.x)*20; 
+    // stage.angularVelocity.z = (stage.target.z - eu.z)*20;
+    // stage.quaternion.setFromEuler(eu.x,0,eu.z)
+
+    if (furthest.position.y-marble.position.y < 200) { // generate new platforms if furthest platform is not more than 200 units above
+        let s1 = Math.sign(Math.random()-0.5)
+        let next = createBox({
+            position: new CANNON.Vec3(
+                furthest.position.x+(s1*Math.random()*10)+(5*s1),
+                furthest.position.y+5+Math.random()*10,
+                furthest.position.z+(-Math.random()*25)+(-5)),
+            extents: new CANNON.Vec3(Math.random()*15+20,3,Math.random()*15+20),
+            color: new THREE.Color(0xe1e1e1),
+            type: CANNON.Body.KINEMATIC,
+            group: cg_stage});
+        next.target = new CANNON.Vec3(0,0,0);
+        platforms.push(next);
+        furthest = next;
+    }
+
+    cameraFocusTrailer.lerp(cameraFocus.position,0.10); // make camera-trailing point follow the camera
+
+    if (marble.position.distanceTo(stage.position) > 30) { // if the marble is more than 30 units away from the stage, change focus to the marble
+        cameraFocus = marble;
+    }
+
+    if (stage.position.y - marble.position.y > 30) { // if marble falls off reset back around start position
+        marble.position = new CANNON.Vec3(stage.position.x,stage.position.y+30,stage.position.z);
+        marble.velocity = new CANNON.Vec3(0,0,0)
+        stage.rotation(0,0,0);  
+        cameraFocus = marble;
+        camera.minDist = 1;
+    }
+
+    for (let i=0; i<handlers.length; ++i) { // execute all handler functions in array once per frame
         handlers[i]();
     }
 
-    world.step(delta);
-    syncPhys();
-    renderer.render(scene, camera);
-    requestAnimationFrame(animate);
+    world.step(delta); // step through physics
+    syncPhys(); // sync 3d scene with physics
+    renderer.render(scene, camera); // render scene to screen
+    requestAnimationFrame(animate); // next loop
 }
 
-function createBox(options={}) {
+function createBox(options={}) { // sets up a box
     defaultOptions(options);
     // cannonjs
     var shape = new CANNON.Box(new CANNON.Vec3(options.extents.x/2,options.extents.y/2,options.extents.z/2));
@@ -222,14 +301,14 @@ function createBox(options={}) {
     return createShape(shape,geometry,options);
 }
 
-function createBall(options={}) {
+function createBall(options={}) { // sets up a ball
     defaultOptions(options);
     var shape = new CANNON.Sphere(options.radius);
     var geometry = new THREE.SphereBufferGeometry(options.radius)
     return createShape(shape,geometry,options);   
 }
 
-function defaultOptions(options) {
+function defaultOptions(options) { // helper for by shape creating functions functions
     options.extents = options.extents || new CANNON.Vec3(1,1,1);
     options.radius = options.radius || 1;
     options.position = options.position || new CANNON.Vec3(0,0,0);
@@ -241,8 +320,8 @@ function defaultOptions(options) {
     if (options.group == undefined) options.group = 1;
     if (options.mask == undefined) options.mask = 1;
 }
-function createShape(shape,geometry,options) {
-    var body = new CANNON.Body({mass: options.mass, shape:shape, position: options.position});
+function createShape(shape,geometry,options) { // called by shape creating functions
+    var body = new CANNON.Body({mass: options.mass, shape:shape, position: options.position, type: options.type});
     body.collisionFilterGroup = options.group;
     body.collisionFilterMask = options.mask;
     body.euler = {x:0, y:0, z:0};
@@ -250,10 +329,11 @@ function createShape(shape,geometry,options) {
     world.add(body); // add body to physics world
     
     if (!options.invisible) { // if body is meant to be visible
-        var mesh = new THREE.Mesh(geometry, new THREE.MeshPhongMaterial({color: options.color})); // create mesh
+        var mesh = new THREE.Mesh(geometry, new THREE.MeshPhongMaterial({color: options.color, transparent: (options.opacity != undefined)})); // create mesh
         mesh.castShadow = mesh.receiveShadow = true; // enable shadows
         scene.add(mesh); // add mesh to graphics world
         mesh.userData.body = body; // reference physicsbody from mesh
+        mesh.name = options.name;
 
         body.mesh = mesh; // reference mesh from physicsbody
         rigidBodies.push(body); // add physicsbody to processing array
@@ -261,7 +341,7 @@ function createShape(shape,geometry,options) {
 
     return body;   
 }
-function removeObject(obj) {
+function removeObject(obj) { // remove objects in physics world and 3d scene
     if (obj instanceof CANNON.Body) {
         world.remove(obj)        
         if (obj.mesh) scene.remove(obj.mesh);
@@ -277,7 +357,7 @@ function removeObject(obj) {
     }
 }
 
-function syncPhys () {
+function syncPhys () { // sync objects in visible 3d scene with their physics world counterparts 
     rigidBodies.forEach((body)=>{
         if (body.mesh != undefined) {
             let mesh = body.mesh;
@@ -287,30 +367,32 @@ function syncPhys () {
     })
 }
 
-function lerp(from,to,weight=0.10) {
+function lerp(from,to,weight=0.10) { // lerp for lerping
     if (Math.abs(to-from) < 0.001) return to;
     return from+((to-from)*weight)
 }
 
-window.addEventListener("mousemove", function(event) {
+window.addEventListener("mousemove", function(event) { // keep track of cursor and raycast to 3d scene to detect if cursor is over an object
     mouse.x = (event.clientX / renderer.domElement.clientWidth) * 2 - 1;
     mouse.y = -(event.clientY / renderer.domElement.clientHeight) * 2 + 1;
 
     cursorRaycaster.setFromCamera(mouse, camera);
 });
 
-window.addEventListener("deviceorientation", function(event) {
+window.addEventListener("deviceorientation", function(event) { // device orientation game controls
+    if(event.alpha == null) return; // every time you enter the tab even on desktop an orientation event fires with all null orientations so this is to avoid responding to that
     var rotateDegrees = event.alpha*(Math.PI/180);
     var leftToRight = event.gamma*(Math.PI/180);
     var frontToBack = event.beta*(Math.PI/180);
+    if(frontToBack) {touchControls.style.display = "none";}
     orientation_debug.innerHTML = `${rotateDegrees}, ${leftToRight}, ${frontToBack}`;
     stage.rotationx = frontToBack;
     stage.rotationz = -leftToRight;
     
-}, true)
+}, true);
 
 // resize viewport automatically
-window.addEventListener("resize", function() {
+window.addEventListener("resize", function() { // resize 3d view when window resizes
     var width = window.innerWidth;
     var height = window.innerHeight;
     renderer.setSize(width,height);
@@ -318,14 +400,32 @@ window.addEventListener("resize", function() {
     camera.updateProjectionMatrix();
 })
 // input listening
-document.addEventListener('keydown', function(event) {
+document.addEventListener('keydown', function(event) { // handle key presses
     key[event.code] = true;
 });
-document.addEventListener('keyup', function(event) {
+document.addEventListener('keyup', function(event) { // handle key presses
     key[event.code] = false;
 });
+document.addEventListener('visibilitychange', function(){ // get delta when page visibility changes to prevent delta buildup while page is unfocused
+    clock.getDelta();
+})
 
-function addHandler(obj,handler) {
+touchControls.addEventListener("touchstart", touchHandler);
+touchControls.addEventListener("touchmove", touchHandler);
+touchControls.addEventListener("touchend",function(){touchX=0;touchY=0; touchJoystick.style.left = "0px";touchJoystick.style.top = "10px";}) // reset joystick when finger leaves touchscreen
+function touchHandler(e) { // touch handler for joystick touch controls
+    if(e.touches) {
+        touchX = (e.touches[0].pageX - this.offsetLeft - touchControls.clientWidth / 2)
+        touchY = (e.touches[0].pageY - this.offsetTop - touchControls.clientHeight / 2)
+        touchJoystick.style.left = touchX + "px";
+        touchJoystick.style.top = touchY + "px";
+        touchX /= this.offsetLeft;
+        touchY /= this.offsetTop;
+        e.preventDefault();
+    }   
+}
+
+function addHandler(obj,handler) { // add function to handlers array
     if (typeof handler == "function") {
         handler.obj = obj
         handlers.push(handler);
@@ -333,7 +433,7 @@ function addHandler(obj,handler) {
         obj.handlers.push(handler)
     }
 }
-function removeHandler(handler) {
+function removeHandler(handler) { // remove function from handlers array
     var index = handlers.indexOf(handler);
     if (index > -1) {
         handlers.splice(index,1)
@@ -341,7 +441,7 @@ function removeHandler(handler) {
     }
 }
 
-function toggleDavid(el) {
+function toggleDavid(el) { // toggle david mode
     if (david.visible) {
         el.innerHTML = "david mode: OFF";
         david.visible = false;
@@ -350,7 +450,3 @@ function toggleDavid(el) {
         david.visible = true;
     }
 }
-
-
-
-
