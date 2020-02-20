@@ -20,7 +20,6 @@ var touchControls = document.getElementById("touch-controls"); // touchscreen co
 var touchJoystick = document.getElementById("touch-joystick"); // joystick visual element for touchscreen controls
 var heightScore = document.getElementById("current-height"); // onscreen height
 var platformScore = document.getElementById("current-platform"); // onscreen platform score
-var orientation_debug = document.getElementById("device-orientation"); // display orientation data
 var weatherInterface = document.getElementById("weather-interface")
 start();
 
@@ -453,14 +452,12 @@ window.addEventListener("deviceorientation", function(event) { // device orienta
     var leftToRight = event.gamma*(Math.PI/180);
     var frontToBack = event.beta*(Math.PI/180);
     if(frontToBack) {touchControls.style.display = "none";}
-    //orientation_debug.innerHTML = `${rotateDegrees}, ${leftToRight}, ${frontToBack}`;
     stage.rotationx = frontToBack;
     stage.rotationz = -leftToRight;
     
 }, true);
 
 window.addEventListener('devicemotion', function(event) {
-    if(orientation_debug.innerHTML < event.acceleration.z)orientation_debug.innerHTML = event.acceleration.z;
     if (event.acceleration.z > 8 && stage.velocity.almostZero()) {
         stageJump();
     }
