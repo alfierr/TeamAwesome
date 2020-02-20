@@ -1,0 +1,101 @@
+body { margin: 0; padding: 0}
+canvas { display: block; }
+#device-orientation{ position:fixed; padding: 10px; font-size: 50px}
+#toggle-david {position: fixed; padding: 10px; top:100px; left:15px;}
+#hud {position: fixed; width:100%; height: 100%;}
+
+#title-screen {
+    overflow: auto;
+    z-index: 10;
+    position: fixed;
+    width: 100%;
+    height: 100%;
+    background-color: #ffffff;
+    text-align: center;
+    font-family: sans-serif;
+    background-color: white;
+}
+#title-screen p {
+    font-family: sans-serif;
+}
+.title-screen-inner {
+    background-color: rgba(220,240,240,0.99);
+    padding: 10px;
+    margin: 1%;
+    border: inset 2px #e1e1e1;
+}
+.ways-to-play {
+    top: 0px;
+    margin: 10px;
+    padding: 10px;
+    width: 300px;
+    display: inline-block;
+    background-color: white;
+    border: solid 2px #e1e1e1;
+}
+.ways-to-play-container {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+#title-screen button {
+    padding: 10px;
+    margin: 20px;
+    font-size: 20px;
+    font-family: serif;
+    width: 200px;
+    background-color: #eeffcc;
+}
+
+#touch-controls {
+    background-color: #ffffff; 
+    position: fixed; 
+    text-align: center;
+    bottom:20px; 
+    right:20px; 
+    width:100px; 
+    height:100px; 
+    border-radius: 100px;
+    opacity: 0.5;
+}
+#touch-joystick {
+    pointer-events: none;
+    background-color: #343434; 
+    margin: auto;
+    position: relative;
+    bottom: -5px;
+    right: 0px;
+    width:90px;
+    height:90px; 
+    border-radius: 100px;
+    opacity: 0.5;
+}
+
+#weather-interface {
+    color: white;
+    opacity: 0.5;
+    position: fixed;
+    right: 0px;
+    top: 0px;
+    padding: 10px;
+    min-height: 40px;
+    max-width: 50%;
+    background-image: linear-gradient(to left, black, rgb(0,0,0,0));
+}
+#weather-interface :hover {
+    opacity: 1;
+}
+
+#weather-interface input {
+    width: 70%;
+    display: inline-block;
+}
+#weather-interface button {
+    width: 20%;
+    display: inline-block;
+}
+#stats-board {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+}

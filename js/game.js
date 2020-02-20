@@ -1,14 +1,15 @@
 'use strict';
 var key = {}; // object for holding which keys are being pressed
-var scene, world, camera, renderer, controls, clock, skybox, textureLoader;
+var scene, world, camera, renderer, controls, clock, skybox, hemiLight, dirLight, textureLoader;
 var cursorRaycaster = new THREE.Raycaster(); // raycaster to detect if cursor is over an object in 3d scene
 var mouse = new THREE.Vector2(); // 2d vector for mouse position
 var mouseDown = false;
 var touchX=0,touchY=0; // touch coordinates on joystick controls
-var stage, marble, david, davidText;
+var titleScreen = document.getElementById("title-screen");
+var stage, marble, david, davidText, rain;
 var furthest // keeps track of furthest platform currently in existence;
 var delta = 0; // amount of time that has passed each frame
-var paused = false;
+var paused = true;
 var cameraFocus = {}; cameraFocus.position = new THREE.Vector3(0,0,0); // holds focus element for camera to look towards
 var cameraFocusTrailer = new THREE.Vector3(0,0,0); // point that smoothly follows camera focus element to allow smooth camera turning
 var rigidBodies = []; // array for holding of all physics objects that need to be processed
@@ -17,7 +18,10 @@ var platforms = [];
 var cg_default = 1, cg_stage = 2, cg_joint = 4; // collision groups
 var touchControls = document.getElementById("touch-controls"); // touchscreen controls
 var touchJoystick = document.getElementById("touch-joystick"); // joystick visual element for touchscreen controls
+var heightScore = document.getElementById("current-height"); // onscreen height
+var platformScore = document.getElementById("current-platform"); // onscreen platform score
 var orientation_debug = document.getElementById("device-orientation"); // display orientation data
+var weatherInterface = document.getElementById("weather-interface")
 start();
 
 function start() { // do stuff
@@ -30,12 +34,15 @@ function start() { // do stuff
         type: CANNON.Body.KINEMATIC,
         group: cg_stage});
     stage.target = new CANNON.Vec3(0,0,0); // target rotation
+    stage.originalPos = new CANNON.Vec3().copy(stage.position);
+    stage.platformNumber = 0;
     cameraFocus = stage.mesh;
     platforms.push(stage);
-    marble = createBall({mass: 0.1, mask: cg_default | cg_stage});
+    marble = createBall({radius: 2,mass: 0.1, mask: cg_default | cg_stage});
     marble.addEventListener("collide", function(e) { // listen for collisions and switch focus to new stage 
         stage.angularVelocity = new CANNON.Vec3();
         cameraFocus = stage = e.body;
+        if (stage.platformNumber > platformScore.innerHTML) platformScore.innerHTML = stage.platformNumber;
         camera.minDist = 1;
     });
     setSkybox("clear-sky");
@@ -56,21 +63,21 @@ function initThreejs() { // setup threejs scene
     addHandler(camera, function() { // the camera follows the current camerafocus object
         camera.lookAt(cameraFocusTrailer); // camera is always looking at the camerafocustrailer (which follow the focused object)
         camera.position.lerp(new THREE.Vector3(
-            Math.min(Math.max(cameraFocus.position.x-5,camera.position.x),cameraFocus.position.y+5), // stay aligned with focus element on x axis
+            Math.min(Math.max(cameraFocus.position.x-5,cameraFocus.position.x),cameraFocus.position.y+5), // stay aligned with focus element on x axis
             Math.min(Math.max(cameraFocus.position.y+camera.minDist,camera.position.y),cameraFocus.position.y+camera.maxDist), // stay within 50 units of of camerafocus but not more than 20 (on y and z axes)
             Math.min(Math.max(cameraFocus.position.z+camera.minDist,camera.position.z),cameraFocus.position.z+camera.maxDist) 
             ),0.10) // 10% lerp
     });
 
     // hemilight
-    let hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.1);
+    hemiLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.1);
     hemiLight.color.setHSL(0.6, 0.6, 0.6);
     hemiLight.groundColor.setHSL(0.1, 1, 0.4);
     hemiLight.position.set(0, 50, 0);
     scene.add(hemiLight);
 
     // dirlight
-    let dirLight = new THREE.DirectionalLight( 0xffffff , 1);
+    dirLight = new THREE.DirectionalLight( 0xffffff , 1);
     dirLight.color.setHSL( 0.1, 1, 0.95 );
     dirLight.position.set( -1, 1.75, 1 );
     dirLight.position.multiplyScalar( 100 );
@@ -96,17 +103,55 @@ function initThreejs() { // setup threejs scene
         skybox.position.z = camera.position.z;
     })
 
+    // rain geometry 
+    let rainCount = 5000;
+    let rainGeo = new THREE.Geometry();
+    for(let i=0;i<rainCount;i++) {
+        let rainDrop = new THREE.Vector3(
+            Math.random() * 400 -200,
+            Math.random() * 500 - 250,
+            Math.random() * 400 - 200
+        );
+        rainDrop.velocity = 0;
+        rainGeo.vertices.push(rainDrop);
+    }
+
+    let rainMaterial = new THREE.PointsMaterial({
+        color: 0xaaaaaa,
+        size: 0.3,
+        transparent: true
+    });
+    rain = new THREE.Points(rainGeo,rainMaterial);
+    rain.mode = 0;
+    rain.visible = false;
+    scene.add(rain);
+    addHandler(rain, function() {
+        rainGeo.vertices.forEach(p => {
+            if (rain.mode == 0) p.velocity -= 0.01 + Math.random() * 0.01;
+            if (rain.mode == 1) p.velocity -= 0.001 + Math.random() * 0.001;
+            p.y += p.velocity;
+            if (p.y < -200) {
+                p.y = 200;
+                p.velocity = 0;
+            }
+            });
+        rainGeo.verticesNeedUpdate = true;
+        rain.rotation.y +=0.002;
+    });
+
+
     // david mode
-    var davidGeom = new THREE.PlaneBufferGeometry(2,2)
+    var davidGeom = new THREE.PlaneBufferGeometry(3,3)
     david = new THREE.Mesh(davidGeom,new THREE.MeshBasicMaterial({map: textureLoader.load(`img/textures/david.png`), side: THREE.DoubleSide}));
     scene.add(david);
+    david.visible = false;
     addHandler(david, function(){ // david follows (slightly above) the marble and is always facing the camera
-        david.position.lerp(new THREE.Vector3(0,3,0).add(marble.position),0.1);
+        david.position.lerp(new THREE.Vector3(0,5,0).add(marble.position),0.1);
         david.lookAt(camera.position)
     })
-    var davidGeom2 = new THREE.PlaneBufferGeometry(1.8,1)
+    var davidGeom2 = new THREE.PlaneBufferGeometry(3,2)
     davidText = new THREE.Mesh(davidGeom2,new THREE.MeshBasicMaterial({transparent: true, opacity:0, map: textureLoader.load(`img/textures/david-text.png`)}));
-    davidText.position.set(0,1.5,0);
+    davidText.position.set(0,2.6,0);
     david.add(davidText);
     addHandler(davidText, function() { // if you hover over the david it makes text fade in that says "david"
         var intersect = cursorRaycaster.intersectObject(david, false);
@@ -179,7 +224,7 @@ function initCannonjs() { // setup physics world
 
 
     world = new CANNON.World();
-    world.gravity.set(0,-30,0);
+    world.gravity.set(0,-100,0);
     world.broadphase = new CANNON.NaiveBroadphase();
 
 
@@ -214,6 +259,10 @@ function initCannonjs() { // setup physics world
 }
 
 function setSkybox(name) { // change world skybox by resource folder name
+    if (name == "cloudy-sky") {dirLight.intensity = 0.8; hemiLight.intensity = 0.05;}
+    if (name == "rainy-sky") {dirLight.intensity = 0.5; hemiLight.intensity = 0.02;}
+    if (name == "snowy-sky") {dirLight.intensity = 0.8; hemiLight.intensity = 0.04; dirLight.color.set(0xdedeff)} else {dirLight.color.set(0xfff4e5)}
+    if (name == "clear-sky") {dirLight.intensity = 1; hemiLight.intensity = 0.1;}
     skybox.material = [
     new THREE.MeshBasicMaterial( {map: textureLoader.load(`img/textures/skybox/${name}/right.png`), side: THREE.DoubleSide}),
     new THREE.MeshBasicMaterial( {map: textureLoader.load(`img/textures/skybox/${name}/left.png`), side: THREE.DoubleSide}),
@@ -225,8 +274,8 @@ function setSkybox(name) { // change world skybox by resource folder name
 }
 
 function animate(time) { // animation loop
-    if (delta>0.2) console.log(delta);
-    delta = clock.getDelta() || 1/60; // get delta (amount of time that has passed since the last frame)
+    if(!paused) {
+    delta = clock.getDelta()/2 || 1/60; // get delta (amount of time that has passed since the last frame)
 
     // rotate stage with arrow keys
     if (key.ArrowLeft) stage.rotationz += 0.08;
@@ -235,21 +284,19 @@ function animate(time) { // animation loop
     if (key.ArrowDown) stage.rotationx += 0.08;
 
     if (key.ArrowLeft || key.ArrowRight || key.ArrowDown || key.ArrowUp) touchControls.style.display = "none"; // turn off touch controls if arrow keys are pressed
-    stage.rotationz = Math.min(Math.max(stage.rotationz - touchX,-Math.PI/2),Math.PI/2); // limit stage rotation on both axes to pi/2 radians in either direction
-    stage.rotationx = Math.min(Math.max(stage.rotationx + touchY,-Math.PI/2),Math.PI/2);
+    stage.rotationz = Math.min(Math.max(stage.rotationz - touchX*0.08,-Math.PI/2),Math.PI/2); // limit stage rotation on both axes to pi/2 radians in either direction
+    stage.rotationx = Math.min(Math.max(stage.rotationx + touchY*0.08,-Math.PI/2),Math.PI/2);
 
+    heightScore.innerHTML = Math.floor(marble.position.y);
 
+    if(key.Space) { // jump stage if space is pressed
+        stageJump();
+    }
+
+    rain.position.lerp(camera.position,0.01);
 
     camera.minDist = lerp(camera.minDist, 20, 0.02);
-    // stage.target.x = Math.min(Math.max(stage.target.x,-Math.PI/2),Math.PI/2); // limit stage rotation target on both axes to pi/2 radians in either direction
-    // stage.target.z = Math.min(Math.max(stage.target.z,-Math.PI/2),Math.PI/2);
 
-    // var eu = {};
-    // stage.quaternion.toEuler(eu); // get rotation
-    // console.log(eu.y);
-    // stage.angularVelocity.x = (stage.target.x - eu.x)*20; 
-    // stage.angularVelocity.z = (stage.target.z - eu.z)*20;
-    // stage.quaternion.setFromEuler(eu.x,0,eu.z)
 
     if (furthest.position.y-marble.position.y < 200) { // generate new platforms if furthest platform is not more than 200 units above
         let s1 = Math.sign(Math.random()-0.5)
@@ -262,6 +309,8 @@ function animate(time) { // animation loop
             color: new THREE.Color(0xe1e1e1),
             type: CANNON.Body.KINEMATIC,
             group: cg_stage});
+        next.platformNumber = furthest.platformNumber+1;
+        next.originalPos = new CANNON.Vec3().copy(next.position);
         next.target = new CANNON.Vec3(0,0,0);
         platforms.push(next);
         furthest = next;
@@ -285,9 +334,13 @@ function animate(time) { // animation loop
         handlers[i]();
     }
 
+
+    
+
     world.step(delta); // step through physics
     syncPhys(); // sync 3d scene with physics
     renderer.render(scene, camera); // render scene to screen
+    } else (clock.getDelta())
     requestAnimationFrame(animate); // next loop
 }
 
@@ -372,6 +425,21 @@ function lerp(from,to,weight=0.10) { // lerp for lerping
     return from+((to-from)*weight)
 }
 
+function stageJump() { // temporarily add forward velocity to stage to launch marble
+    var matrix = new THREE.Matrix4(); // get rotation matrix
+    matrix.extractRotation( stage.mesh.matrix );
+    
+    var direction = new THREE.Vector3( 0, 1, 0 ); // apply rotation to vector
+    direction = direction.applyMatrix4(matrix);
+    let m = 50; // magnitude of velocity
+    let cStage = stage; // use reference to current stage in case it changes
+    cStage.velocity = new CANNON.Vec3(direction.x*m,direction.y*m,direction.z*m);
+    setTimeout(function(){ // timeout to reset stage back to its normal position
+        cStage.position = new CANNON.Vec3().copy(cStage.originalPos);
+        cStage.velocity = new CANNON.Vec3(0,0,0);
+    },50)
+}
+
 window.addEventListener("mousemove", function(event) { // keep track of cursor and raycast to 3d scene to detect if cursor is over an object
     mouse.x = (event.clientX / renderer.domElement.clientWidth) * 2 - 1;
     mouse.y = -(event.clientY / renderer.domElement.clientHeight) * 2 + 1;
@@ -385,12 +453,45 @@ window.addEventListener("deviceorientation", function(event) { // device orienta
     var leftToRight = event.gamma*(Math.PI/180);
     var frontToBack = event.beta*(Math.PI/180);
     if(frontToBack) {touchControls.style.display = "none";}
-    orientation_debug.innerHTML = `${rotateDegrees}, ${leftToRight}, ${frontToBack}`;
+    //orientation_debug.innerHTML = `${rotateDegrees}, ${leftToRight}, ${frontToBack}`;
     stage.rotationx = frontToBack;
     stage.rotationz = -leftToRight;
     
 }, true);
 
+window.addEventListener('devicemotion', function(event) {
+    if(orientation_debug.innerHTML < event.acceleration.z)orientation_debug.innerHTML = event.acceleration.z;
+    if (event.acceleration.z > 8 && stage.velocity.almostZero()) {
+        stageJump();
+    }
+});
+
+var playButton = document.getElementById("play-button");
+playButton.addEventListener("click", gameStart)
+titleScreen.addEventListener("keydown", function(e) {
+    e.preventDefault();
+    if ((e.code == "Enter" || e.code == "Space") && paused) {
+        gameStart();
+    }
+});
+playButton.focus();
+function gameStart() {
+    paused = false;
+    if (document.getElementById("david-mode-toggle").checked) {
+        david.visible = true;
+    }
+    titleScreen.y_offset = 0;
+    titleScreen.style.opacity = 1.00;
+    addHandler(titleScreen, function() {
+        titleScreen.style.opacity -= 0.01
+        titleScreen.style.top = titleScreen.y_offset+"px";
+        titleScreen.y_offset = lerp(titleScreen.y_offset, -screen.height-250, 0.05);
+        if(titleScreen.style.opacity <= 0) {
+            titleScreen.style.display = "none";
+            titleScreen.remove();
+        }
+    });
+}
 // resize viewport automatically
 window.addEventListener("resize", function() { // resize 3d view when window resizes
     var width = window.innerWidth;
@@ -412,15 +513,16 @@ document.addEventListener('visibilitychange', function(){ // get delta when page
 
 touchControls.addEventListener("touchstart", touchHandler);
 touchControls.addEventListener("touchmove", touchHandler);
-touchControls.addEventListener("touchend",function(){touchX=0;touchY=0; touchJoystick.style.left = "0px";touchJoystick.style.top = "10px";}) // reset joystick when finger leaves touchscreen
+touchControls.addEventListener("touchend",function(){touchX=0;touchY=0; touchJoystick.style.left = "0px";touchJoystick.style.top = "5px";}) // reset joystick when finger leaves touchscreen
 function touchHandler(e) { // touch handler for joystick touch controls
     if(e.touches) {
         touchX = (e.touches[0].pageX - this.offsetLeft - touchControls.clientWidth / 2)
         touchY = (e.touches[0].pageY - this.offsetTop - touchControls.clientHeight / 2)
         touchJoystick.style.left = touchX + "px";
         touchJoystick.style.top = touchY + "px";
-        touchX /= this.offsetLeft;
-        touchY /= this.offsetTop;
+        let newtouch = new THREE.Vector2(touchX,touchY).normalize()
+        touchX = newtouch.x;
+        touchY = newtouch.y;
         e.preventDefault();
     }   
 }
@@ -438,15 +540,5 @@ function removeHandler(handler) { // remove function from handlers array
     if (index > -1) {
         handlers.splice(index,1)
         handlers.splice(handler.obj.handlers.indexOf(handler),1);
-    }
-}
-
-function toggleDavid(el) { // toggle david mode
-    if (david.visible) {
-        el.innerHTML = "david mode: OFF";
-        david.visible = false;
-    } else {
-        el.innerHTML = "david mode: ON";
-        david.visible = true;
     }
 }

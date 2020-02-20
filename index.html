@@ -2,48 +2,75 @@
 <html>
 	<head>
 		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<meta http-equiv="X-UA-Compatible" content="ie=edge">
 		<title>My first three.js app</title>
-		<style>
-			body { margin: 0; }
-			canvas { display: block; }
-            #device-orientation{ position:fixed; padding: 10px; font-size: 50px}
-            #toggle-david {position: fixed; padding: 10px; top:100px; left:15px;}
-			#hud {position: fixed; width:100%; height: 100%;}
-			#touch-controls {
-				background-color: #ffffff; 
-				position: fixed; 
-				text-align: center;
-				bottom:100px; 
-				right:100px; 
-				width:200px; 
-				height:200px; 
-				border-radius: 100px;
-				opacity: 0.5;
-			}
-			#touch-joystick {
-				pointer-events: none;
-				background-color: #343434; 
-				margin: auto;
-				position: relative;
-				bottom: -10px;
-				right: 0px;
-				width:180px;
-				height:180px; 
-				border-radius: 100px;
-				opacity: 0.5;
-			}
-		</style>
+		<link rel="stylesheet" href="style.css">
 	</head>
 	<body>
+		<div id="title-screen">
+			<div class="title-screen-inner">
+				<h1>Marble Climb</h1>
+				<p>
+					Launch your marble up the platforms and see how high you can get!<br>
+					Tilt your platform to send your marble flying. Touch a platform with your marble, and you'll gain control over it!<br>
+				</p>
+				<hr>
+				<label>David mode:</label><input type="checkbox" id="david-mode-toggle"><br>
+				<button id="play-button">Play</button>
+				<hr>
+				<h2>Ways to Play</h2><br>
+				<div class="ways-to-play-container">
+					<div class="ways-to-play">
+						<img src="img/menu/01.png">
+						<p>Tilt the platform using the arrow keys and press space to launch the ball!</p>
+					</div>
+					<div class="ways-to-play">
+						<img src="img/menu/02.png">
+						<p>Tilt your phone to play (in supported devices and browsers) Thrust your device upwards to launch the ball!</p>
+					</div>
+					<div class="ways-to-play">
+						<img src="img/menu/03.png">
+						<p>Use a virtual joystick to tilt the platform on other mobile devices, tap it to launch the ball!</p>
+					</div>
+				</div>
+				<h2>Real-time Marble Weather</h2>
+				<p>Experience marble gaming in varying conditions vaguely resembling the real-life weather in locations of your choice!</p>
+				<h2>David mode</h2>
+				<p>Featuring state-of-the-art "david mode" (toggleable)</p>
+				<h2>Contributions:</h2>
+				<p>
+					Alfonzo: API Research<br>
+					David: Design Input (Inspiration for David Mode)<br>
+					Cynthia: QA Feedback<br>
+					Henry: Programming
+				</p>
+			</div>
+		</div>
+		<div id="stats-board">
+			<div>height: <span id="current-height"></span></div>
+			<div>highest platform: <span id="current-platform">0</span></div>
+		</div>
+		<div id="weather-interface">
+			<img id="weather-display-icon"></img>
+			<span id="weather-display-description"></span>
+			<span id="weather-display-temp"></span>
+			<span id="weather-display-city"></span>
+			<span id="weather-display-humidity"></span>
+			<span id="weather-display-pressure"></span>
+			<span id="weather-display-wind"></span>
+			<input type="text" id="weather-input-city" placeholder="Enter a city...">
+			<button id="weather-submit-button">Go</button>
+		</div>
 		<div id="touch-controls">
 			<div id="touch-joystick"></div>
 		</div>
         <span id="device-orientation"></span>
-        <button id="toggle-david" onclick="toggleDavid(this)">david mode: ON</button>
 		<script src="js/three.js"></script>
 		<script src="js/GLTFLoader.js"></script>
 		<script src="js/OrbitControls.js"></script>
 		<script src="js/cannon.js"></script>
 		<script src="js/game.js"></script>
+		<script src="js/weather.js"></script>
 	</body>
 </html>
